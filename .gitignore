@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+node_modules/
+.deepguard-data
+frontend/node_modules
+backend/.venv
+deepguard/backend/venv
+deepguard/frontend/node_modules
+deepguard/backend/.pytest_cache
+deepguard/backend/__pycache__
+deepguard/backend/*.db
+deepguard-app/frontend/node_modules
+deepguard-app/backend/.venv
+deepguard-app/logs
+.DS_Store
