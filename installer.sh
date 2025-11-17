@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Debug tracing when DEBUG=1
 if [[ ${DEBUG:-0} -eq 1 ]]; then
   set -x
 fi
@@ -9,8 +8,10 @@ fi
 RELEASE_TAG="v0.0.01"
 USE_LATEST=0
 INSTALL_DIR="$(pwd)/integrity"
-SKIP_COMPOSE=0
 APT_UPDATED=0
+DB_NAME="deepguard"
+DB_USER="deepguard"
+DB_PASSWORD="deepguard"
 
 log() { printf "[INFO] %s\n" "$*"; }
 warn() { printf "[WARN] %s\n" "$*"; }
@@ -18,13 +19,12 @@ error_exit() { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
 
 usage() {
   cat <<USAGE
-Usage: $0 [--latest] [--release-tag <tag>] [--install-dir <path>] [--skip-compose]
+Usage: $0 [--latest] [--release-tag <tag>] [--install-dir <path>]
 
 Options:
   --latest              Use the latest GitHub release instead of the default tag (${RELEASE_TAG}).
   --release-tag <tag>   Download a specific release tag (default: ${RELEASE_TAG}).
   --install-dir <path>  Destination directory for the unpacked project (default: ${INSTALL_DIR}).
-  --skip-compose        Skip docker compose build during setup.
   --help                Show this help message.
 
 Environment:
@@ -40,8 +40,6 @@ while [[ $# -gt 0 ]]; do
       RELEASE_TAG=${2:?"--release-tag requires a value"}; shift 2 ;;
     --install-dir)
       INSTALL_DIR=${2:?"--install-dir requires a value"}; shift 2 ;;
-    --skip-compose)
-      SKIP_COMPOSE=1; shift ;;
     --help|-h)
       usage; exit 0 ;;
     *)
@@ -70,31 +68,6 @@ ensure_package() {
   ensure_apt_updated
   log "Installing missing dependency: ${apt_pkg}"
   sudo apt-get install -y "$apt_pkg"
-}
-
-ensure_docker_compose() {
-  if command -v docker-compose >/dev/null 2>&1; then
-    log "docker-compose is available."
-    return 0
-  fi
-
-  if docker compose version >/dev/null 2>&1; then
-    log "Docker Compose plugin is available."
-    return 0
-  fi
-
-  ensure_apt_updated
-  log "Installing Docker Compose plugin..."
-  sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose
-}
-
-start_docker_service() {
-  if systemctl is-active --quiet docker; then
-    log "Docker service is already running."
-    return 0
-  fi
-  log "Starting Docker service..."
-  sudo systemctl enable docker --now || warn "Could not enable/start Docker via systemctl; ensure the daemon is running."
 }
 
 fetch_latest_zip_url() {
@@ -147,24 +120,56 @@ download_and_unpack() {
   mv "$src_dir" "$INSTALL_DIR"
 }
 
-compose_build_if_available() {
-  local compose_root="$1"
-  if [[ ! -d "$compose_root" ]]; then
-    warn "Compose directory ${compose_root} not found; skipping docker compose build."
+ensure_postgres_service() {
+  if systemctl is-active --quiet postgresql; then
+    log "PostgreSQL service is active."
     return 0
   fi
-  if [[ $SKIP_COMPOSE -eq 1 ]]; then
-    warn "Skipping docker compose build as requested."
-    return 0
-  fi
-  if ! command -v docker >/dev/null 2>&1; then
-    warn "Docker not available; skipping compose build."
-    return 0
+  ensure_apt_updated
+  log "Starting PostgreSQL service..."
+  sudo systemctl enable postgresql --now || warn "Unable to enable/start PostgreSQL via systemctl; please start it manually."
+}
+
+provision_database() {
+  log "Provisioning PostgreSQL role/database (${DB_USER}/${DB_NAME})..."
+  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || \
+    sudo -u postgres psql -c "CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}' CREATEDB;"
+
+  sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
+    sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+
+  sudo -u postgres psql -c "ALTER USER ${DB_USER} PASSWORD '${DB_PASSWORD}';" >/dev/null
+}
+
+setup_backend() {
+  local backend_dir="$INSTALL_DIR/deepguard-app/backend"
+  log "Setting up backend virtual environment..."
+  python3 -m venv "$backend_dir/.venv"
+  source "$backend_dir/.venv/bin/activate"
+  pip install --upgrade pip
+  pip install -r "$backend_dir/requirements.txt"
+
+  local env_file="$backend_dir/.env"
+  if [[ ! -f "$env_file" ]]; then
+    cat > "$env_file" <<INNER_ENV
+DATABASE_URL=postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
+INNER_ENV
   fi
 
-  start_docker_service
-  log "Building containers (this may take several minutes)..."
-  (cd "$compose_root" && (docker compose build || docker-compose build))
+  log "Running Alembic migrations..."
+  pushd "$backend_dir" >/dev/null
+  alembic upgrade head
+  popd >/dev/null
+  deactivate || true
+}
+
+setup_frontend() {
+  local frontend_dir="$INSTALL_DIR/deepguard-app/frontend"
+  log "Installing frontend dependencies..."
+  pushd "$frontend_dir" >/dev/null
+  npm install
+  npm run build
+  popd >/dev/null
 }
 
 main() {
@@ -173,17 +178,26 @@ main() {
   ensure_package unzip unzip
   ensure_package python3 python3
   ensure_package python3-venv python3
-  ensure_package docker docker docker.io
-  ensure_docker_compose
+  ensure_package build-essential gcc
+  ensure_package libpq-dev pg_config
+  ensure_package postgresql psql postgresql
+  ensure_package postgresql-contrib psql postgresql-contrib
+  ensure_package nodejs node nodejs
+  ensure_package npm npm
 
   local url
   url=$(determine_download_url)
   download_and_unpack "$url"
 
-  compose_build_if_available "$INSTALL_DIR/deepguard-app"
+  ensure_postgres_service
+  provision_database
+  setup_backend
+  setup_frontend
 
-  log "Installation complete. Project located at ${INSTALL_DIR}".
-  log "To start services: cd ${INSTALL_DIR}/deepguard-app && docker compose up -d"
+  log "Installation complete. Project located at ${INSTALL_DIR}."
+  log "Backend env: ${INSTALL_DIR}/deepguard-app/backend/.venv"
+  log "Database URL: postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
+  log "Start services with: ${INSTALL_DIR}/port_guard.sh --project-root ${INSTALL_DIR}/deepguard-app"
 }
 
 main "$@"

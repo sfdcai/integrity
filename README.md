@@ -5,19 +5,10 @@ Production-oriented web application for well integrity management per ISO/TS 165
 ## Architecture
 - **Backend**: FastAPI, SQLAlchemy ORM, Alembic, PostgreSQL. Modules for wells, annuli, measurements, barrier elements, tasks, integrity engine (MAASP and status), and schematic DTOs.
 - **Frontend**: React (Vite) + TailwindCSS, Axios data layer, D3 interactive well schematic, dashboard with traffic-light indicators and tasks.
-- **Deployment**: Docker Compose with database, backend, and frontend services.
+- **Deployment**: Native Ubuntu services (PostgreSQL, FastAPI via uvicorn, Vite dev server). No Docker required.
 
-## Running locally
-1. Install Docker.
-2. From `deepguard-app/` run:
-   ```bash
-   docker-compose up --build
-   ```
-3. Backend: http://localhost:8000 (OpenAPI at `/docs`).
-4. Frontend: http://localhost:3000.
-
-## Automated installation (Ubuntu headless)
-Use the installer to download the latest tagged archive, install missing dependencies, and build the containers:
+## Native installation (Ubuntu headless)
+Use the installer to download the latest tagged archive, install missing dependencies, provision PostgreSQL locally, install backend/frontend dependencies, and run Alembic migrations:
 
 ```bash
 chmod +x installer.sh
@@ -27,20 +18,45 @@ chmod +x installer.sh
 Flags:
 - `--install-dir <path>`: where the project should be placed (default: `$(pwd)/integrity`).
 - `--release-tag <tag>`: fetch a specific release tag instead of the latest.
-- `--skip-compose`: download/unpack without building Docker images (useful for air-gapped hosts).
 - `DEBUG=1`: emit verbose shell tracing to diagnose install issues.
 
-After installation, start or verify the stack with the port guard script, which checks ports 5432/8000/3000 and starts Docker Compose if needed:
+What the installer does:
+- Installs prerequisites: curl, unzip, Python 3 + venv, build-essential, libpq-dev, PostgreSQL, Node.js + npm.
+- Ensures PostgreSQL service is started, creates `deepguard` role/password and `deepguard` database.
+- Sets up Python virtual environment in `deepguard-app/backend/.venv` and installs `requirements.txt`.
+- Writes `.env` with `DATABASE_URL=postgresql+psycopg2://deepguard:deepguard@localhost:5432/deepguard`.
+- Runs Alembic migrations.
+- Installs frontend dependencies (Vite + Tailwind) and builds the client once.
+
+## Starting services and health checks
+Use the port guard to verify core ports (5432/8000/3000) and start services natively if any are inactive. The script starts PostgreSQL via `systemctl`, launches uvicorn for the backend, and runs the Vite dev server for the frontend with logs saved under `deepguard-app/logs/`.
 
 ```bash
 chmod +x port_guard.sh
-./port_guard.sh --compose-root <install_dir>/deepguard-app
+./port_guard.sh --project-root <install_dir>/deepguard-app
 ```
 
-You can override the watched ports with `--ports "5432 8000 3000"` and enable debug tracing via `DEBUG=1`.
+You can override watched ports with `--ports "5432 8000 3000"` and enable debug tracing via `DEBUG=1`.
+
+Manual start commands (after the installer):
+
+```bash
+# Backend
+cd <install_dir>/deepguard-app/backend
+source .venv/bin/activate
+alembic upgrade head
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Frontend
+cd <install_dir>/deepguard-app/frontend
+npm run dev -- --host --port 3000
+```
+
+Backend OpenAPI docs: http://localhost:8000/docs
+Frontend UI: http://localhost:3000
 
 ## Database
-- Alembic migrations live in `backend/alembic`. The default connection is `postgresql://postgres:postgres@db:5432/deepguard`.
+- Alembic migrations live in `backend/alembic`. The default connection is `postgresql://deepguard:deepguard@localhost:5432/deepguard`.
 - On backend startup a seed inserts sample well `DG-1` with annuli, tubulars, barrier elements, measurements, and tasks auto-generated from the integrity engine rules.
 
 ## Integrity logic

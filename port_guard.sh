@@ -5,9 +5,14 @@ if [[ ${DEBUG:-0} -eq 1 ]]; then
   set -x
 fi
 
-# Default ports for DB, backend, and frontend
 PORTS=(5432 8000 3000)
-COMPOSE_ROOT="${COMPOSE_ROOT:-$(pwd)/deepguard-app}"
+DB_PORT=5432
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)/deepguard-app}"
+BACKEND_DIR="$PROJECT_ROOT/backend"
+FRONTEND_DIR="$PROJECT_ROOT/frontend"
+LOG_DIR="$PROJECT_ROOT/logs"
 
 log() { printf "[INFO] %s\n" "$*"; }
 warn() { printf "[WARN] %s\n" "$*"; }
@@ -15,11 +20,11 @@ error_exit() { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
 
 usage() {
   cat <<USAGE
-Usage: $0 [--compose-root <path>] [--ports "p1 p2 ..."]
+Usage: $0 [--project-root <path>] [--ports "p1 p2 p3"]
 
 Options:
-  --compose-root <path>  Path to the docker-compose.yml directory (default: ${COMPOSE_ROOT}).
-  --ports "p1 p2 ..."   Space-delimited list of ports to validate (default: ${PORTS[*]}).
+  --project-root <path>  Root of the DeepGuard project (default: ${PROJECT_ROOT}).
+  --ports "p1 p2 p3"     Space-delimited list of ports (db backend frontend). Default: ${PORTS[*]}.
   --help                 Show this message.
 
 Environment:
@@ -29,28 +34,17 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --compose-root)
-      COMPOSE_ROOT=${2:?"--compose-root requires a value"}; shift 2 ;;
+    --project-root)
+      PROJECT_ROOT=${2:?"--project-root requires a value"}; BACKEND_DIR="$PROJECT_ROOT/backend"; FRONTEND_DIR="$PROJECT_ROOT/frontend"; LOG_DIR="$PROJECT_ROOT/logs"; shift 2 ;;
     --ports)
-      IFS=' ' read -r -a PORTS <<< "${2:?"--ports requires a value"}"; shift 2 ;;
+      IFS=' ' read -r -a PORTS <<< "${2:?"--ports requires a value"}"; \
+      DB_PORT=${PORTS[0]:-$DB_PORT}; BACKEND_PORT=${PORTS[1]:-$BACKEND_PORT}; FRONTEND_PORT=${PORTS[2]:-$FRONTEND_PORT}; shift 2 ;;
     --help|-h)
       usage; exit 0 ;;
     *)
       error_exit "Unknown option: $1" ;;
   esac
 done
-
-ensure_compose_available() {
-  if docker compose version >/dev/null 2>&1; then
-    echo "docker compose"
-    return 0
-  fi
-  if command -v docker-compose >/dev/null 2>&1; then
-    echo "docker-compose"
-    return 0
-  fi
-  error_exit "Docker Compose not found. Please install Docker and Compose."
-}
 
 port_in_use() {
   local port="$1"
@@ -60,53 +54,85 @@ port_in_use() {
   return 1
 }
 
-start_services() {
-  local compose_bin
-  compose_bin=$(ensure_compose_available)
+ensure_log_dir() {
+  mkdir -p "$LOG_DIR"
+}
 
-  if [[ ! -f "$COMPOSE_ROOT/docker-compose.yml" ]]; then
-    error_exit "docker-compose.yml not found in ${COMPOSE_ROOT}"
+ensure_postgres_running() {
+  if command -v pg_isready >/dev/null 2>&1 && pg_isready -q -p "$DB_PORT"; then
+    log "PostgreSQL already responding on port ${DB_PORT}."
+    return 0
   fi
+  warn "PostgreSQL not responding on port ${DB_PORT}; attempting to start service..."
+  sudo systemctl enable postgresql --now || warn "Could not start PostgreSQL via systemctl; please start it manually."
+  sleep 2
+  if command -v pg_isready >/dev/null 2>&1 && pg_isready -q -p "$DB_PORT"; then
+    log "PostgreSQL is now responding on port ${DB_PORT}."
+  else
+    warn "PostgreSQL still not responding on port ${DB_PORT}."
+  fi
+}
 
-  log "Starting services via ${compose_bin} in ${COMPOSE_ROOT}"
-  (cd "$COMPOSE_ROOT" && ${compose_bin} up -d)
-  log "Compose status:"
-  (cd "$COMPOSE_ROOT" && ${compose_bin} ps)
+start_backend() {
+  if port_in_use "$BACKEND_PORT"; then
+    log "Backend already listening on ${BACKEND_PORT}."
+    return 0
+  fi
+  if [[ ! -x "$BACKEND_DIR/.venv/bin/uvicorn" ]]; then
+    warn "Backend virtualenv not found at $BACKEND_DIR/.venv; run installer first."
+    return 1
+  fi
+  ensure_log_dir
+  pushd "$BACKEND_DIR" >/dev/null
+  nohup "$BACKEND_DIR/.venv/bin/uvicorn" app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --log-level info > "$LOG_DIR/backend.log" 2>&1 &
+  echo $! > "$LOG_DIR/backend.pid"
+  popd >/dev/null
+  log "Started backend (PID $(cat "$LOG_DIR/backend.pid")) on port ${BACKEND_PORT}. Logs: $LOG_DIR/backend.log"
+}
+
+start_frontend() {
+  if port_in_use "$FRONTEND_PORT"; then
+    log "Frontend already listening on ${FRONTEND_PORT}."
+    return 0
+  fi
+  if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
+    warn "Frontend directory not found at $FRONTEND_DIR; run installer first."
+    return 1
+  fi
+  ensure_log_dir
+  pushd "$FRONTEND_DIR" >/dev/null
+  nohup npm run dev -- --host --port "$FRONTEND_PORT" > "$LOG_DIR/frontend.log" 2>&1 &
+  echo $! > "$LOG_DIR/frontend.pid"
+  popd >/dev/null
+  log "Started frontend (PID $(cat "$LOG_DIR/frontend.pid")) on port ${FRONTEND_PORT}. Logs: $LOG_DIR/frontend.log"
+}
+
+print_status() {
+  log "Current port status:"
+  for port in "${PORTS[@]}"; do
+    if port_in_use "$port"; then
+      log "  port ${port}: ACTIVE"
+    else
+      warn "  port ${port}: inactive"
+    fi
+  done
+  if [[ -f "$LOG_DIR/backend.log" ]]; then
+    log "Tail backend log:"; tail -n 20 "$LOG_DIR/backend.log" || true
+  fi
+  if [[ -f "$LOG_DIR/frontend.log" ]]; then
+    log "Tail frontend log:"; tail -n 20 "$LOG_DIR/frontend.log" || true
+  fi
 }
 
 main() {
-  log "Checking ports: ${PORTS[*]}"
-  local missing=()
-  for port in "${PORTS[@]}"; do
-    if port_in_use "$port"; then
-      log "Port ${port} is already in use."
-    else
-      warn "Port ${port} is not listening."
-      missing+=("$port")
-    fi
-  done
+  ensure_log_dir
+  print_status
 
-  if [[ ${#missing[@]} -eq 0 ]]; then
-    log "All monitored ports are active."
-    exit 0
-  fi
+  ensure_postgres_running
+  start_backend || true
+  start_frontend || true
 
-  warn "Detected inactive ports: ${missing[*]}"
-  start_services
-
-  log "Rechecking after start..."
-  for port in "${missing[@]}"; do
-    if port_in_use "$port"; then
-      log "Port ${port} is now active."
-    else
-      warn "Port ${port} is still inactive. Check logs for details."
-    fi
-  done
-
-  log "Service logs (last 50 lines per container):"
-  compose_bin=$(ensure_compose_available)
-  (cd "$COMPOSE_ROOT" && ${compose_bin} ps --all)
-  (cd "$COMPOSE_ROOT" && ${compose_bin} logs --tail=50)
+  print_status
 }
 
 main "$@"
