@@ -16,6 +16,29 @@ Production-oriented web application for well integrity management per ISO/TS 165
 3. Backend: http://localhost:8000 (OpenAPI at `/docs`).
 4. Frontend: http://localhost:3000.
 
+## Automated installation (Ubuntu headless)
+Use the installer to download the latest tagged archive, install missing dependencies, and build the containers:
+
+```bash
+chmod +x installer.sh
+./installer.sh --latest                # or omit --latest to pin tag v0.0.01
+```
+
+Flags:
+- `--install-dir <path>`: where the project should be placed (default: `$(pwd)/integrity`).
+- `--release-tag <tag>`: fetch a specific release tag instead of the latest.
+- `--skip-compose`: download/unpack without building Docker images (useful for air-gapped hosts).
+- `DEBUG=1`: emit verbose shell tracing to diagnose install issues.
+
+After installation, start or verify the stack with the port guard script, which checks ports 5432/8000/3000 and starts Docker Compose if needed:
+
+```bash
+chmod +x port_guard.sh
+./port_guard.sh --compose-root <install_dir>/deepguard-app
+```
+
+You can override the watched ports with `--ports "5432 8000 3000"` and enable debug tracing via `DEBUG=1`.
+
 ## Database
 - Alembic migrations live in `backend/alembic`. The default connection is `postgresql://postgres:postgres@db:5432/deepguard`.
 - On backend startup a seed inserts sample well `DG-1` with annuli, tubulars, barrier elements, measurements, and tasks auto-generated from the integrity engine rules.
