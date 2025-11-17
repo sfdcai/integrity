@@ -11,7 +11,7 @@ apt-get install -y curl software-properties-common
 if ! command -v python3.12 >/dev/null; then
   add-apt-repository -y ppa:deadsnakes/ppa
   apt-get update
-  apt-get install -y python3.12 python3.12-venv python3.12-distutils
+  apt-get install -y python3.12 python3.12-venv python3-distutils
 fi
 if ! command -v node >/dev/null || [[ $(node -v) != v20* ]]; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
