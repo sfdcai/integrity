@@ -15,6 +15,7 @@ deepguard/
 1. `cd deepguard`
 2. `sudo bash scripts/install_ubuntu.sh`
 3. Browse API at `http://<server>:8000/docs` and UI at `http://<server>:5173`
+4. If a port is unreachable later, run `bash scripts/healthcheck.sh` to auto-restart via PM2 and tail recent logs.
 
 Default credentials: `admin@deepguard.io / admin`.
 
