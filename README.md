@@ -18,6 +18,8 @@ deepguard/
 
 Default credentials: `admin@deepguard.io / admin`.
 
+If your backend runs on a different host/IP than the browser you use, create `frontend/.env` with `VITE_API_URL=http://<server>:8000` so the React app calls the correct API instead of `localhost`.
+
 ## Development
 - Backend: `cd backend && ../scripts/start.sh` (uvicorn via PM2)
 - Frontend: `cd frontend && npm run dev`

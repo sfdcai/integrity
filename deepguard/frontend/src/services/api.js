@@ -1,7 +1,11 @@
 import axios from 'axios'
 
+const fallbackHost = typeof window !== 'undefined'
+  ? `${window.location.protocol}//${window.location.hostname}:8000`
+  : 'http://localhost:8000'
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  baseURL: import.meta.env.VITE_API_URL || fallbackHost
 })
 
 export const setToken = (token) => {

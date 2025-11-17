@@ -48,11 +48,18 @@ npm install
 cd ..
 
 # PM2 processes
-pm2 start backend/venv/bin/uvicorn --name deepguard-backend --cwd "$ROOT_DIR/backend" -- app.main:app --host 0.0.0.0 --port 8000 --reload
+pm2 start backend/venv/bin/uvicorn --interpreter none --name deepguard-backend --cwd "$ROOT_DIR/backend" -- app.main:app --host 0.0.0.0 --port 8000 --reload
 pm2 start "npm run dev -- --host" --name deepguard-frontend --cwd "$ROOT_DIR/frontend"
 pm2 save
 pm2-logrotate
 pm2 startup systemd -u $(whoami) --hp $(eval echo ~$(whoami))
+
+# Quick health hints
+pm2 status deepguard-backend deepguard-frontend || true
+if command -v curl >/dev/null 2>&1; then
+  API_HOST=${API_HOST:-$(hostname -I | awk '{print $1}')}
+  curl -f "http://${API_HOST}:8000" >/dev/null 2>&1 && echo "[INFO] Backend reachable on http://${API_HOST}:8000" || echo "[WARN] Backend not yet responding on http://${API_HOST}:8000"
+fi
 
 printf "Backend API: http://$(hostname -I | awk '{print $1}'):8000/docs\n"
 printf "Frontend UI: http://$(hostname -I | awk '{print $1}'):5173\n"
