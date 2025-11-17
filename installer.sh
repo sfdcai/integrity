@@ -70,6 +70,20 @@ ensure_package() {
   sudo apt-get install -y "$apt_pkg"
 }
 
+ensure_python_venv() {
+  if python3 - <<'PY' >/dev/null 2>&1
+import ensurepip, venv
+PY
+  then
+    log "Python venv/ensurepip available."
+    return 0
+  fi
+
+  ensure_apt_updated
+  log "Installing python3-venv to provide ensurepip/venv modules..."
+  sudo apt-get install -y python3-venv
+}
+
 fetch_latest_zip_url() {
   python3 - <<'PY' || exit 1
 import json, sys, urllib.request
@@ -132,13 +146,13 @@ ensure_postgres_service() {
 
 provision_database() {
   log "Provisioning PostgreSQL role/database (${DB_USER}/${DB_NAME})..."
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || \
-    sudo -u postgres psql -c "CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}' CREATEDB;"
+  sudo -u postgres -H psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || \
+    sudo -u postgres -H psql -c "CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}' CREATEDB;"
 
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
-    sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+  sudo -u postgres -H psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
+    sudo -u postgres -H psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
 
-  sudo -u postgres psql -c "ALTER USER ${DB_USER} PASSWORD '${DB_PASSWORD}';" >/dev/null
+  sudo -u postgres -H psql -c "ALTER USER ${DB_USER} PASSWORD '${DB_PASSWORD}';" >/dev/null
 }
 
 setup_backend() {
@@ -177,7 +191,7 @@ main() {
   ensure_package curl curl
   ensure_package unzip unzip
   ensure_package python3 python3
-  ensure_package python3-venv python3
+  ensure_python_venv
   ensure_package build-essential gcc
   ensure_package libpq-dev pg_config
   ensure_package postgresql psql postgresql
