@@ -13,4 +13,5 @@ deepguard/backend/*.db
 deepguard-app/frontend/node_modules
 deepguard-app/backend/.venv
 deepguard-app/logs
+.venv
 .DS_Store

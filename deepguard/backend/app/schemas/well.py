@@ -1,11 +1,15 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 
 
 class PressureMeasurementBase(BaseModel):
     pressure: float
-    timestamp: datetime | None = None
+    timestamp: datetime | None = Field(default=None, description="ISO timestamp of the reading")
+
+
+class PressureMeasurementCreate(PressureMeasurementBase):
+    timestamp: datetime | None = Field(default_factory=datetime.utcnow)
 
 
 class PressureMeasurement(PressureMeasurementBase):
@@ -29,7 +33,7 @@ class AnnulusCreate(AnnulusBase):
 
 class Annulus(AnnulusBase):
     id: int
-    measurements: List[PressureMeasurement] = []
+    measurements: List[PressureMeasurement] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -82,14 +86,14 @@ class WellBase(BaseModel):
 
 
 class WellCreate(WellBase):
-    annuli: List[AnnulusCreate] = []
+    annuli: List[AnnulusCreate] = Field(default_factory=list)
 
 
 class Well(WellBase):
     id: int
-    annuli: List[Annulus] = []
-    barriers: List[BarrierElement] = []
-    tasks: List[Task] = []
+    annuli: List[Annulus] = Field(default_factory=list)
+    barriers: List[BarrierElement] = Field(default_factory=list)
+    tasks: List[Task] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

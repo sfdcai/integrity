@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
+from ..schemas.user import UserCreate
 from ..utils.security import verify_password, get_password_hash, create_access_token, decode_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -32,11 +33,11 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 
 @router.post("/register")
-def register(email: str, password: str, full_name: str | None = None, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == email).first()
+def register(payload: UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(email=email, hashed_password=get_password_hash(password), full_name=full_name)
+    user = User(email=payload.email, hashed_password=get_password_hash(payload.password), full_name=payload.full_name)
     db.add(user)
     db.commit()
     db.refresh(user)

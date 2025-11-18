@@ -3,7 +3,14 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from ..database import get_db
 from ..models import Well, Annulus, PressureMeasurement, BarrierElement
-from ..schemas import WellCreate, Well as WellSchema, AnnulusCreate, BarrierElementCreate, SchematicDTO
+from ..schemas import (
+    WellCreate,
+    Well as WellSchema,
+    AnnulusCreate,
+    BarrierElementCreate,
+    SchematicDTO,
+    PressureMeasurementCreate,
+)
 from ..integrity.maasp import compute_maasp, utilisation, classify_integrity, recommendations
 from ..services.reminders import ensure_tasks
 from .auth import get_current_user
@@ -91,8 +98,7 @@ def add_barrier_element(
 def add_pressure_measurement(
     well_id: int,
     annulus_id: int,
-    pressure: float,
-    timestamp: datetime | None = None,
+    reading: PressureMeasurementCreate,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -104,7 +110,11 @@ def add_pressure_measurement(
     )
     if not annulus:
         raise HTTPException(status_code=404, detail="Annulus not found")
-    measurement = PressureMeasurement(annulus=annulus, pressure=pressure, timestamp=timestamp or datetime.utcnow())
+    measurement = PressureMeasurement(
+        annulus=annulus,
+        pressure=reading.pressure,
+        timestamp=reading.timestamp or datetime.utcnow(),
+    )
     db.add(measurement)
 
     maasp_value = compute_maasp(

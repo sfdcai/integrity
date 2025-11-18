@@ -5,6 +5,7 @@ from .well import (
     Annulus,
     AnnulusCreate,
     PressureMeasurement,
+    PressureMeasurementCreate,
     BarrierElement,
     BarrierElementCreate,
     Task,
