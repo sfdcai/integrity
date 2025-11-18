@@ -11,7 +11,7 @@
   "dependencies": {
     "@headlessui/react": "^1.7.18",
     "@heroicons/react": "^2.1.4",
-    "@lucide/react": "^0.430.0",
+    "lucide-react": "^0.344.0",
     "axios": "^1.6.8",
     "d3": "^7.9.0",
     "recharts": "^2.8.0",
