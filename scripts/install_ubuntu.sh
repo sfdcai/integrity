@@ -42,5 +42,6 @@ pm2 start npm --name deepguard-frontend -- run dev -- --host --port 5173
 pm2 save
 pm2 startup systemd -u $USER --hp $HOME
 
-printf "Backend API: http://localhost:8000/docs\n"
-printf "Frontend UI: http://localhost:5173\n"
+HOST_IP=$(hostname -I | awk '{print $1}')
+printf "Backend API: http://${HOST_IP:-<server-ip>}:8000/docs\n"
+printf "Frontend UI: http://${HOST_IP:-<server-ip>}:5173\n"
