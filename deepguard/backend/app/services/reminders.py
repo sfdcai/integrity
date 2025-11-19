@@ -24,7 +24,15 @@ def ensure_tasks(db: Session, annulus: Annulus, maasp_value: float):
         )
 
 
-def create_task_if_missing(db: Session, well_id: int, title: str, due_date: datetime, priority: str):
+def create_task_if_missing(
+    db: Session,
+    well_id: int,
+    title: str,
+    due_date: datetime,
+    priority: str,
+    auto_generated: bool = False,
+    trigger_type: str | None = None,
+):
     existing = (
         db.query(Task)
         .filter(Task.well_id == well_id, Task.title == title, Task.status == "OPEN")
@@ -32,7 +40,14 @@ def create_task_if_missing(db: Session, well_id: int, title: str, due_date: date
     )
     if existing:
         return existing
-    task = Task(well_id=well_id, title=title, due_date=due_date, priority=priority)
+    task = Task(
+        well_id=well_id,
+        title=title,
+        due_date=due_date,
+        priority=priority,
+        auto_generated=auto_generated,
+        trigger_type=trigger_type,
+    )
     db.add(task)
     db.commit()
     db.refresh(task)
