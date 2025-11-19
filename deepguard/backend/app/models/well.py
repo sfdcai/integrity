@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
@@ -30,9 +30,14 @@ class Annulus(Base):
     bottom_depth = Column(Float, default=0.0)
     fluid_gradient = Column(Float, default=0.00981)  # bar/m
     critical_pressure_limit = Column(Float, default=0.0)  # bar at depth
+    safety_factor = Column(Float, default=0.9)
 
     well = relationship("Well", back_populates="annuli")
     measurements = relationship("PressureMeasurement", back_populates="annulus", cascade="all, delete-orphan")
+    critical_points = relationship("AnnulusCriticalPoint", back_populates="annulus", cascade="all, delete-orphan")
+    annulus_measurements = relationship(
+        "AnnulusMeasurement", back_populates="annulus", cascade="all, delete-orphan"
+    )
 
 
 class PressureMeasurement(Base):
@@ -44,6 +49,31 @@ class PressureMeasurement(Base):
     pressure = Column(Float, nullable=False)
 
     annulus = relationship("Annulus", back_populates="measurements")
+
+
+class AnnulusCriticalPoint(Base):
+    __tablename__ = "annulus_critical_points"
+
+    id = Column(Integer, primary_key=True, index=True)
+    annulus_id = Column(Integer, ForeignKey("annuli.id"))
+    label = Column(String, nullable=False)
+    tvd_m = Column(Float, nullable=False)
+    pressure_limit_bar = Column(Float, nullable=False)
+
+    annulus = relationship("Annulus", back_populates="critical_points")
+
+
+class AnnulusMeasurement(Base):
+    __tablename__ = "annulus_measurements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    annulus_id = Column(Integer, ForeignKey("annuli.id"))
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    pressure_bar = Column(Float, nullable=False)
+    temperature_c = Column(Float, nullable=True)
+    source = Column(String, default="manual")
+
+    annulus = relationship("Annulus", back_populates="annulus_measurements")
 
 
 class BarrierElement(Base):
@@ -71,5 +101,7 @@ class Task(Base):
     due_date = Column(DateTime, nullable=True)
     priority = Column(String, default="MEDIUM")
     status = Column(String, default="OPEN")
+    auto_generated = Column(Boolean, default=False)
+    trigger_type = Column(String, nullable=True)
 
     well = relationship("Well", back_populates="tasks")
